@@ -6,8 +6,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import yt_dlp
 
 # Konfigurasi
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Akan diisi di Railway environment
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 DOWNLOAD_DIR = "downloads"
+COOKIES_PATH = "cookies.txt"  # Tambahkan ini
 
 # Buat folder download jika belum ada
 if not os.path.exists(DOWNLOAD_DIR):
@@ -41,6 +42,13 @@ async def download_video(url: str) -> tuple:
         'merge_output_format': 'mp4',
     }
     
+    # 🔥 TAMBAHKAN INI: Dukungan cookies untuk Instagram
+    if os.path.exists(COOKIES_PATH):
+        ydl_opts['cookiefile'] = COOKIES_PATH
+        print(f"✅ Using cookies from {COOKIES_PATH}")
+    else:
+        print(f"⚠️ Cookies file not found at {COOKIES_PATH}, Instagram downloads may fail")
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -60,8 +68,10 @@ def get_file_size_mb(file_path: str) -> float:
     """Dapatkan ukuran file dalam MB"""
     return os.path.getsize(file_path) / (1024 * 1024)
 
+# Handler functions (start, handle_message, help_command) - tetap sama seperti sebelumnya
+# ... kode start, handle_message, help_command tidak berubah ...
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk perintah /start"""
     await update.message.reply_text(
         "🎬 *Bot Downloader Video*\n\n"
         "Kirimkan link video dari:\n"
@@ -115,7 +125,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_size = get_file_size_mb(file_path)
     
     if file_size > 50:
-        # Ukuran melebihi batas Telegram
         await status_msg.edit_text(
             f"⚠️ *Ukuran video terlalu besar*\n\n"
             f"File: `{title}`\n"
@@ -189,6 +198,12 @@ def main():
     
     print("🚀 Bot sedang berjalan...")
     print(f"   Token: {BOT_TOKEN[:10]}...")
+    
+    # Cek cookies file
+    if os.path.exists(COOKIES_PATH):
+        print(f"✅ Cookies file found: {COOKIES_PATH}")
+    else:
+        print(f"⚠️ No cookies file found, Instagram downloads may fail")
     
     # Buat application
     app = Application.builder().token(BOT_TOKEN).build()
