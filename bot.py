@@ -2,12 +2,12 @@ import os
 import re
 import asyncio
 import subprocess
-import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import tempfile
+import shutil
+from pathlib import Path
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import yt_dlp
-import gallery_dl
-from gallery_dl.extractor import tiktok
 
 # Konfigurasi
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -68,7 +68,6 @@ def get_video_formats(url: str):
                 if f.get('vcodec') != 'none' and f.get('height'):
                     height = f.get('height')
                     fps = f.get('fps', '')
-                    format_note = f.get('format_note', '')
                     
                     # Hindari duplikasi resolusi yang sama
                     if not any(fmt['height'] == height and fmt.get('fps') == fps for fmt in formats):
@@ -76,7 +75,7 @@ def get_video_formats(url: str):
                             'format_id': f['format_id'],
                             'height': height,
                             'fps': fps,
-                            'format_note': format_note,
+                            'format_note': f.get('format_note', ''),
                             'filesize': f.get('filesize', 0),
                             'ext': f.get('ext', 'mp4')
                         })
@@ -142,28 +141,20 @@ async def download_video(url: str, format_id: str = None) -> tuple:
 
 async def download_tiktok_photo(url: str) -> tuple:
     """
-    Download TikTok photo post menggunakan gallery-dl
+    Download TikTok photo post menggunakan gallery-dl via subprocess
     Return: (list_of_image_paths, title, total_size_mb, error_message)
     """
     try:
-        # gallery-dl akan download ke folder dengan nama sesuai
-        # Kita gunakan subprocess untuk memanggil gallery-dl CLI
-        # karena lebih reliable daripada API langsung
-        
         # Buat folder sementara
-        import tempfile
-        import shutil
-        from pathlib import Path
-        
         temp_dir = tempfile.mkdtemp(dir=DOWNLOAD_DIR)
         
         # Jalankan gallery-dl sebagai subprocess
-        # --filter "extension in ('jpg','jpeg','png')" untuk hanya download gambar
-        # (skip audio yang kadang ikut terdownload)[citation:3]
+        # --destination untuk folder tujuan
+        # --range untuk hanya download gambar
         cmd = [
             'gallery-dl',
-            '--dest', temp_dir,
-            '--filter', "extension in ('jpg','jpeg','png')",
+            '--destination', temp_dir,
+            '--filename', '{id}_{num}.{extension}',
             url
         ]
         
@@ -177,6 +168,8 @@ async def download_tiktok_photo(url: str) -> tuple:
         
         if process.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
+            # Hapus folder temp jika error
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return None, None, None, f"gallery-dl error: {error_msg[:200]}"
         
         # Cari semua gambar yang didownload
@@ -191,10 +184,10 @@ async def download_tiktok_photo(url: str) -> tuple:
                     total_size += os.path.getsize(file_path)
         
         if not image_files:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             return None, None, None, "No images found in photo post"
         
-        # Ambil title dari folder name atau gunakan default
-        folder_name = os.path.basename(temp_dir)
+        # Ambil title dari username atau gunakan default
         title = f"TikTok Photo ({len(image_files)} images)"
         
         total_size_mb = total_size / (1024 * 1024)
@@ -230,7 +223,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Deteksi platform
     platform = detect_platform(url)
     
-    # Handle TikTok Photo (BARU - DIDUKUNG!)
+    # Handle TikTok Photo
     if platform == 'tiktok_photo':
         status_msg = await update.message.reply_text(
             "🖼️ *Mendownload TikTok Photo Post...*\n"
@@ -269,10 +262,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Hapus folder temp
             if images:
                 folder = os.path.dirname(images[0])
-                try:
-                    os.rmdir(folder)
-                except:
-                    pass
+                shutil.rmtree(folder, ignore_errors=True)
             return
         
         # Kirim gambar sebagai media group (album)
@@ -285,9 +275,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             
-            # Kirim sebagai media group (album) kalo lebih dari 1 gambar
-            from telegram import InputMediaPhoto
-            
             if len(images) == 1:
                 # Single photo
                 with open(images[0], 'rb') as photo_file:
@@ -298,25 +285,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode="Markdown"
                     )
             else:
-                # Multiple photos as album
-                media_group = []
-                for i, img_path in enumerate(images):
-                    with open(img_path, 'rb') as img_file:
-                        if i == 0:
-                            media_group.append(
-                                InputMediaPhoto(
-                                    media=img_file,
-                                    caption=f"🖼️ *TikTok Slideshow*\n📸 {len(images)} images\n\n📱 Download dari TikTok",
-                                    parse_mode="Markdown"
+                # Multiple photos as album (max 10 per batch)
+                for i in range(0, len(images), 10):
+                    batch = images[i:i+10]
+                    media_group = []
+                    
+                    for j, img_path in enumerate(batch):
+                        with open(img_path, 'rb') as img_file:
+                            if j == 0 and i == 0:
+                                media_group.append(
+                                    InputMediaPhoto(
+                                        media=img_file,
+                                        caption=f"🖼️ *TikTok Slideshow*\n📸 {len(images)} images\n\n📱 Download dari TikTok",
+                                        parse_mode="Markdown"
+                                    )
                                 )
-                            )
-                        else:
-                            media_group.append(InputMediaPhoto(media=img_file))
-                
-                # Kirim dalam batch (Telegram maksimal 10 per album)
-                for i in range(0, len(media_group), 10):
-                    batch = media_group[i:i+10]
-                    await context.bot.send_media_group(chat_id=chat_id, media=batch)
+                            else:
+                                media_group.append(InputMediaPhoto(media=img_file))
+                    
+                    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
             
             await status_msg.delete()
             
@@ -326,10 +313,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     os.remove(img)
             if images:
                 folder = os.path.dirname(images[0])
-                try:
-                    os.rmdir(folder)
-                except:
-                    pass
+                shutil.rmtree(folder, ignore_errors=True)
             
         except Exception as e:
             await status_msg.edit_text(
@@ -340,6 +324,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for img in images:
                 if os.path.exists(img):
                     os.remove(img)
+            if images:
+                folder = os.path.dirname(images[0])
+                shutil.rmtree(folder, ignore_errors=True)
         return
     
     # Handle TikTok Unknown (link pendek yang belum ke-resolve)
@@ -354,52 +341,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'extract_flat': True,  # Hanya extract info, tidak download
+                'extract_flat': True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                # Jika berhasil, cek apakah video atau photo
                 webpage_url = info.get('webpage_url', '')
                 if '/photo/' in webpage_url:
-                    # Handle sebagai photo
-                    platform = 'tiktok_photo'
                     # Re-process sebagai photo
-                    status_msg = await update.message.reply_text(
-                        "🖼️ *Mendownload TikTok Photo Post...*\n"
-                        "⏳ Mengambil semua gambar dari slideshow...",
-                        parse_mode="Markdown"
-                    )
-                    
-                    images, title, total_size, error = await download_tiktok_photo(url)
-                    
-                    if error:
-                        await status_msg.edit_text(f"❌ *Gagal mendownload:* `{error[:150]}`", parse_mode="Markdown")
-                        return
-                    
-                    # ... (sama seperti kode photo di atas)
-                    # Kirim photo
-                    if total_size > 50:
-                        await status_msg.edit_text(f"⚠️ Ukuran terlalu besar: `{total_size:.1f} MB`", parse_mode="Markdown")
-                        return
-                    
-                    await status_msg.edit_text(f"✅ *{len(images)} gambar* siap dikirim...", parse_mode="Markdown")
-                    
-                    if len(images) == 1:
-                        with open(images[0], 'rb') as photo_file:
-                            await context.bot.send_photo(chat_id=chat_id, photo=photo_file, caption="🖼️ TikTok Photo")
-                    else:
-                        media_group = []
-                        for img_path in images[:10]:
-                            with open(img_path, 'rb') as img_file:
-                                media_group.append(InputMediaPhoto(media=img_file))
-                        await context.bot.send_media_group(chat_id=chat_id, media=media_group)
-                    
-                    await status_msg.delete()
-                    for img in images:
-                        if os.path.exists(img):
-                            os.remove(img)
+                    platform = 'tiktok_photo'
+                    # Handle lagi sebagai photo (panggil ulang fungsi dengan platform yang sudah benar)
+                    await handle_message(update, context)
                     return
-                    
                 elif '/video/' in webpage_url:
                     platform = 'tiktok_video'
                 else:
@@ -413,7 +365,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"❌ *Gagal memproses link TikTok*\n\n"
                 f"Error: `{str(e)[:150]}`\n\n"
-                f"💡 Pastikan link valid dan video bersifat publik.",
+                f"💡 Pastikan link valid.",
                 parse_mode="Markdown"
             )
             return
@@ -490,30 +442,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path, title, file_size, error = await download_video(url)
         
         if error:
-            error_lower = error.lower()
-            if "photo" in error_lower or "slideshow" in error_lower:
-                await status_msg.edit_text(
-                    "❌ *Ini adalah postingan FOTO (slideshow)*\n\n"
-                    "Bot sekarang SUPPORT TikTok photo!\n"
-                    "Silakan kirim ulang link yang sama, bot akan mendeteksinya sebagai photo.",
-                    parse_mode="Markdown"
-                )
-            else:
-                await status_msg.edit_text(
-                    f"❌ *Gagal mendownload TikTok*\n\n"
-                    f"Error: `{error[:200]}`\n\n"
-                    f"💡 Mungkin:\n"
-                    f"• Link perlu di-recopy dari TikTok\n"
-                    f"• Video bersifat private\n"
-                    f"• Akun TikTok terkena pembatasan",
-                    parse_mode="Markdown"
-                )
+            await status_msg.edit_text(
+                f"❌ *Gagal mendownload TikTok*\n\n"
+                f"Error: `{error[:200]}`\n\n"
+                f"💡 Mungkin:\n"
+                f"• Link perlu di-recopy dari TikTok\n"
+                f"• Video bersifat private",
+                parse_mode="Markdown"
+            )
             return
         
         if file_size > 50:
             await status_msg.edit_text(
                 f"⚠️ *Ukuran video terlalu besar*\n\n"
-                f"Judul: `{title}`\n"
                 f"Ukuran: `{file_size:.1f} MB`\n"
                 f"Batasan Telegram: `50 MB`\n\n"
                 f"💡 Coba link TikTok lain dengan durasi lebih pendek.",
@@ -571,8 +512,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "yt_audio":
         await query.message.edit_text(
             "🎵 *Mengunduh audio...*\n"
-            "⏳ Mohon tunggu sebentar.\n"
-            "✨ Audio akan dikirim dalam format MP3.",
+            "⏳ Mohon tunggu sebentar.",
             parse_mode="Markdown"
         )
         
@@ -587,8 +527,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'quiet': True,
             'no_warnings': True,
             'format': 'bestaudio/best',
-            'extractaudio': True,
-            'audioformat': 'mp3',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -602,7 +540,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_path = ydl.prepare_filename(info).replace('.webm', '.mp3').replace('.m4a', '.mp3')
                 
                 if not os.path.exists(file_path):
-                    file_path = file_path.replace('.webm', '.mp3').replace('.m4a', '.mp3')
+                    file_path = file_path.replace('.webm', '.mp3')
                 
                 title = info.get('title', 'audio')
                 title = re.sub(r'[^\w\s\-]', '', title)[:50]
@@ -610,18 +548,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if file_size_mb > 50:
                     await query.message.edit_text(
-                        f"⚠️ *Ukuran audio terlalu besar*\n\n"
-                        f"Ukuran: `{file_size_mb:.1f} MB`\n"
-                        f"Telegram maksimal `50 MB`.",
+                        f"⚠️ *Ukuran audio terlalu besar*\n\nUkuran: `{file_size_mb:.1f} MB`",
                         parse_mode="Markdown"
                     )
                     os.remove(file_path)
                     return
                 
                 await query.message.edit_text(
-                    f"✅ *Audio berhasil didownload!*\n"
-                    f"📦 Ukuran: `{file_size_mb:.1f} MB`\n\n"
-                    f"📤 *Mengirim audio...*",
+                    f"✅ *Audio berhasil!*\n📦 Ukuran: `{file_size_mb:.1f} MB`\n\n📤 *Mengirim...*",
                     parse_mode="Markdown"
                 )
                 
@@ -630,7 +564,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         chat_id=chat_id,
                         audio=audio_file,
                         title=title,
-                        performer="YouTube Downloader"
+                        performer="YouTube"
                     )
                 
                 os.remove(file_path)
@@ -645,42 +579,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del user_urls[chat_id]
         return
     
-    # Handle download video dengan format tertentu
+    # Handle download video
     if data.startswith("yt_"):
         format_id = data[3:]
         url = user_urls.get(chat_id)
         
         if not url:
-            await query.message.edit_text("❌ URL tidak ditemukan. Silakan kirim link YouTube lagi.")
+            await query.message.edit_text("❌ URL tidak ditemukan.")
             return
         
         await query.message.edit_text(
-            "📥 *Mengunduh video...*\n"
-            "⏳ Proses bisa memakan waktu 1-3 menit tergantung ukuran dan koneksi.\n"
-            "✨ Video akan dikirim setelah selesai.",
+            "📥 *Mengunduh video...*\n⏳ Bisa memakan waktu 1-3 menit.",
             parse_mode="Markdown"
         )
         
         file_path, title, file_size, error = await download_video(url, format_id)
         
         if error:
-            await query.message.edit_text(
-                f"❌ *Gagal mendownload video*\n\n"
-                f"Error: `{error[:200]}`\n\n"
-                f"💡 Coba pilih resolusi lain atau cek koneksi internet.",
-                parse_mode="Markdown"
-            )
+            await query.message.edit_text(f"❌ *Gagal*\n\nError: `{error[:200]}`", parse_mode="Markdown")
             if chat_id in user_urls:
                 del user_urls[chat_id]
             return
         
         if file_size > 50:
             await query.message.edit_text(
-                f"⚠️ *Ukuran video terlalu besar*\n\n"
-                f"Judul: `{title[:50]}`\n"
-                f"Ukuran: `{file_size:.1f} MB`\n"
-                f"Batasan Telegram: `50 MB`\n\n"
-                f"💡 Silakan pilih resolusi yang lebih rendah atau download audio saja.",
+                f"⚠️ *Ukuran terlalu besar:* `{file_size:.1f} MB`\n💡 Pilih resolusi lebih rendah.",
                 parse_mode="Markdown"
             )
             os.remove(file_path)
@@ -690,10 +613,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         try:
             await query.message.edit_text(
-                f"✅ *Download berhasil!*\n"
-                f"🎬 *{title[:50]}*\n"
-                f"📦 Ukuran: `{file_size:.1f} MB`\n\n"
-                f"📤 *Sedang mengirim video...*",
+                f"✅ *Berhasil!*\n📦 Ukuran: `{file_size:.1f} MB`\n\n📤 *Mengirim...*",
                 parse_mode="Markdown"
             )
             
@@ -701,7 +621,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_video(
                     chat_id=chat_id,
                     video=video_file,
-                    caption=f"🎬 *{title}*\n\n📥 Download dari YouTube",
+                    caption=f"🎬 *{title}*\n\n📥 YouTube",
                     parse_mode="Markdown",
                     supports_streaming=True
                 )
@@ -710,11 +630,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
             
         except Exception as e:
-            await query.message.edit_text(
-                f"❌ *Gagal mengirim video*\n\nError: `{str(e)[:200]}`\n\n"
-                f"💡 Mungkin file corrupt atau koneksi bermasalah.",
-                parse_mode="Markdown"
-            )
+            await query.message.edit_text(f"❌ *Gagal kirim:* `{str(e)[:200]}`", parse_mode="Markdown")
             if os.path.exists(file_path):
                 os.remove(file_path)
         
@@ -724,55 +640,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler untuk perintah /help"""
     await update.message.reply_text(
-        "📖 *Panduan Penggunaan Bot*\n\n"
-        "*YouTube:*\n"
-        "1. Copy link YouTube (youtube.com/watch?v=xxx atau youtu.be/xxx)\n"
-        "2. Paste di chat bot\n"
-        "3. Pilih resolusi yang diinginkan dari tombol\n"
-        "4. Video akan dikirim otomatis\n\n"
-        "*TikTok Video:*\n"
-        "1. Buka TikTok, cari video\n"
-        "2. Tekan tombol Share → Copy Link\n"
-        "3. Paste di chat bot\n"
-        "4. Tunggu video terkirim tanpa watermark\n\n"
-        "*TikTok Photo/Slideshow:* 🆕\n"
-        "1. Buka postingan foto/gambar di TikTok\n"
-        "2. Copy link (sama seperti copy link video)\n"
-        "3. Paste di chat bot\n"
-        "4. Bot akan download SEMUA gambar dan kirim sebagai album!\n\n"
-        "🎵 *Bonus Fitur YouTube:*\n"
-        "• Download audio MP3\n\n"
-        "⚠️ *Batasan Penting:*\n"
-        "• File maksimal 50MB (kebijakan Telegram)\n"
-        "• Untuk TikTok photo, total ukuran semua gambar maksimal 50MB\n"
-        "• Video dengan durasi panjang mungkin gagal\n"
-        "• Pastikan konten bersifat publik\n\n"
-        "📞 *Source Code:* [GitHub Repository]",
+        "📖 *Panduan Penggunaan*\n\n"
+        "*YouTube:* Kirim link → pilih resolusi\n"
+        "*TikTok Video:* Kirim link → auto download\n"
+        "*TikTok Photo:* Kirim link → download semua gambar 🆕\n\n"
+        "⚠️ Maksimal 50MB\n"
+        "📞 Source: GitHub",
         parse_mode="Markdown",
         disable_web_page_preview=True
     )
 
 def main():
-    """Main function untuk menjalankan bot"""
+    """Main function"""
     if not BOT_TOKEN:
         print("❌ ERROR: BOT_TOKEN tidak ditemukan!")
-        print("   Set environment variable BOT_TOKEN di Railway.")
         return
     
     print("🚀 Bot sedang berjalan...")
-    print(f"   Token: {BOT_TOKEN[:10]}...")
-    print("   Support: YouTube (pilihan resolusi), TikTok Video, TikTok Photo/Slideshow 🆕")
+    print("   Support: YouTube, TikTok Video, TikTok Photo 🆕")
     
-    # Buat application
     app = Application.builder().token(BOT_TOKEN).build()
-    
-    # Tambahkan handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Start bot
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
