@@ -125,13 +125,12 @@ async def download_tiktok_photo(url: str) -> tuple:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "TikTok Downloader\n━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Send a TikTok link, get the content.\n\n"
-        "Supported: video, photo, slideshow\n"
-        "No watermark. No size limit.\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>TikTok Downloader</b>\n\n"
+        "Send a link • Get content instantly\n"
+        "Video • Photo • Slideshow\n"
+        "No watermark • No limits\n\n"
         "/help",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
