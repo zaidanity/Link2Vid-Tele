@@ -1,11 +1,12 @@
 # Link2Vid-Tele
 
-A lightweight Telegram bot for downloading videos and photos from popular platforms directly to your chat.
+A lightweight Telegram bot for downloading TikTok videos and photos directly to your chat — fast, clean, watermark-free.
 
-**Supported Platforms:**
-- ✅ YouTube (with resolution selection up to 4K)
+**Features:**
 - ✅ TikTok Videos (watermark-free)
 - ✅ TikTok Photos/Slideshows (as album)
+- ✅ Short links support (vt.tiktok.com, vm.tiktok.com)
+- ✅ Auto URL resolution
 
 ---
 
@@ -15,7 +16,7 @@ A lightweight Telegram bot for downloading videos and photos from popular platfo
 
 1. Open Telegram and search for **@BotFather**
 2. Send `/newbot` and follow the instructions
-3. Give your bot a name (e.g., "Link2Vid Downloader")
+3. Give your bot a name (e.g., "Link2Vid")
 4. Give your bot a username (e.g., "link2vid_tele_bot")
 5. **Copy the bot token** - you'll need this
 
@@ -74,31 +75,25 @@ Your bot will automatically start when deployed!
 
 ## 📱 How to Use
 
-### YouTube Downloads
-
-1. Send a YouTube link to the bot (e.g., `https://youtu.be/...` or `youtube.com/watch?v=...`)
-2. Bot shows available resolutions and file sizes
-3. Click your preferred resolution to download
-4. Video sends automatically
-
-**Features:**
-- Select video quality: 144p → 4K (if available)
-- Download only audio as MP3 file
-- Respects Telegram's 50MB file limit
-
-### TikTok Videos
+### Download TikTok Video
 
 1. Open TikTok, find the video you want
 2. Tap **Share** → **Copy Link**
 3. Send the link to the bot
 4. Video downloads **without watermark** and sends automatically
 
-### TikTok Photos/Slideshow
+**Supports:**
+- Full TikTok links: `tiktok.com/@username/video/xxx`
+- Short links: `vt.tiktok.com/xxxxx` or `vm.tiktok.com/xxxxx`
+
+### Download TikTok Photos/Slideshow
 
 1. Open TikTok photo post or slideshow
 2. Tap **Share** → **Copy Link**
 3. Send the link to the bot
 4. Bot downloads **all images** and sends as an album
+   - Up to 10 images per batch
+   - Multiple batches sent if needed
 
 ---
 
@@ -106,12 +101,11 @@ Your bot will automatically start when deployed!
 
 | Feature | Details |
 |---------|---------|
-| YouTube Resolutions | 144p, 240p, 360p, 480p, 720p, 1080p, 4K (varies by video) |
-| Audio Download | YouTube to MP3 (192 kbps) |
-| TikTok Video | Watermark-free download |
-| TikTok Photos | Download all images in slideshow |
+| TikTok Video | Watermark-free, best quality (720p max) |
+| TikTok Photos | Download all images from slideshow |
+| Short Links | Auto-resolve vt.tiktok.com, vm.tiktok.com |
 | File Size Limit | Max 50MB per file (Telegram limit) |
-| Album Size Limit | Max 50MB total for photo albums |
+| Album Limit | Max 50MB total for photo albums |
 
 ---
 
@@ -121,6 +115,7 @@ Your bot will automatically start when deployed!
 python-telegram-bot==20.7
 yt-dlp==2024.7.1
 gallery-dl==1.26.9
+requests
 ```
 
 ---
@@ -129,9 +124,9 @@ gallery-dl==1.26.9
 
 - **Public Content Only**: Links must be publicly accessible
 - **File Limits**: Telegram enforces a 50MB per file limit
-- **TikTok Photos**: Total size of all images in slideshow limited to ~50MB
+- **TikTok Photos**: Total size of all images limited to ~50MB
 - **Private Videos**: Will fail if account is private or video is restricted
-- **Download Time**: Large files (1GB+) may take several minutes
+- **Download Time**: Large videos may take 10-30 seconds
 
 ---
 
@@ -149,11 +144,13 @@ pip install -r requirements.txt
 BOT_TOKEN="your_token" python bot.py
 ```
 
-### Architecture
+### How It Works
 
-- `bot.py` - Main bot logic and handlers
-- `requirements.txt` - Python dependencies
-- Handlers: YouTube selection menu → TikTok auto-download → Photo albums
+1. Bot detects if link is TikTok video or photo
+2. For videos: Downloads with yt-dlp, sends as video
+3. For photos: Uses gallery-dl, sends as media album
+4. Auto-resolves short URLs before processing
+5. Cleans up temp files after sending
 
 ---
 
@@ -165,8 +162,8 @@ Personal use and reference. Ensure you respect copyright of downloaded content.
 
 ## 🤝 Support
 
-- **Issue with link?** Make sure it's public and try copying again
-- **File too big?** Select lower resolution or check video duration
-- **Still stuck?** Double-check your BOT_TOKEN in Railway variables
+- **Link not working?** Make sure it's public and try copying again
+- **File too big?** Check video duration (longer = larger file)
+- **Bot not responding?** Double-check your BOT_TOKEN in Railway variables
 
 **Repository:** [github.com/zaidanity/Link2Vid-Tele](https://github.com/zaidanity/Link2Vid-Tele)

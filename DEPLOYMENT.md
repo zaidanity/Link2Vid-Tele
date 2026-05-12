@@ -1,6 +1,6 @@
 # Railway Deployment Guide
 
-Panduan lengkap untuk deploy bot ke Railway.
+Panduan lengkap untuk deploy TikTok Downloader Bot ke Railway.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ Panduan lengkap untuk deploy bot ke Railway.
 1. Buka Telegram → cari **@BotFather**
 2. Ketik `/newbot`
 3. Follow instruksi:
-   - Nama bot: *"Link2Vid Downloader"* (atau nama pilihan Anda)
+   - Nama bot: *"TikTok Downloader"* (atau nama pilihan Anda)
    - Username bot: *"link2vid_tele_bot"* (harus unik)
 4. **Copy token yang diberikan**, contoh: `123456789:ABCdefGHIjklMNOpqrSTUvwxYZ`
 
@@ -77,6 +77,22 @@ Atau langsung buka: https://railway.app/new
 3. Kirim `/start`
 4. Jika menerima respon → bot berhasil!
 
+## Cara Menggunakan Bot
+
+1. **TikTok Video:**
+   - Buka TikTok → Share → Copy Link
+   - Paste ke bot
+   - Tunggu video terkirim tanpa watermark
+
+2. **TikTok Photos/Slideshow:**
+   - Buka postingan foto → Share → Copy Link
+   - Paste ke bot
+   - Bot download semua gambar dan kirim sebagai album
+
+3. **Support Short Links:**
+   - vt.tiktok.com (short video links)
+   - vm.tiktok.com (short mobile links)
+
 ## Troubleshooting
 
 ### Bot tidak respond
@@ -96,10 +112,16 @@ Atau langsung buka: https://railway.app/new
   }
   ```
 
-### Download tidak bekerja
-- Cek internet Railway (usually fine)
-- Cek link YouTube/TikTok valid & publik
-- Lihat Railway logs untuk error detail
+### Download TikTok tidak bekerja
+- **Private link?** Pastikan postingan bersifat publik
+- **Link tidak valid?** Copy ulang dari TikTok
+- **File terlalu besar?** Coba video/foto lain
+- **Lihat logs**: Railway Deployments → scroll untuk error detail
+
+### File terlalu besar (>50MB)
+- Telegram limit maksimal 50MB per file
+- Untuk slideshow, total semua gambar tidak boleh >50MB
+- Coba photo post dengan gambar lebih sedikit
 
 ## Stop/Delete Bot
 
