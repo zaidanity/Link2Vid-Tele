@@ -1,8 +1,4 @@
 python-telegram-bot==20.7
 yt-dlp
 gallery-dl
-<<<<<<< HEAD
 requests
-=======
-requests
->>>>>>> 640ae9d395dba7a22518bafc69f61de776d8d753
