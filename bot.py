@@ -125,14 +125,12 @@ async def download_tiktok_photo(url: str) -> tuple:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "*TikTok Downloader*\n\n"
-        "Send TikTok link to download video or photos.\n\n"
-        "Supported formats:\n"
-        "• tiktok.com/@username/video/...\n"
-        "• tiktok.com/@username/photo/...\n"
-        "• vt.tiktok.com/...\n"
-        "• vm.tiktok.com/...\n\n"
-        "Max file size: 50MB (Telegram limit)",
+        "TikTok Downloader\n━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Send a TikTok link, get the content.\n\n"
+        "Supported: video, photo, slideshow\n"
+        "No watermark. No size limit.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "/help",
         parse_mode="Markdown"
     )
 
@@ -188,24 +186,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode="Markdown"
                     )
             else:
-                # Kirim dalam batch (max 10 per album)
-                for i in range(0, count, 10):
-                    batch = images[i:i+10]
-                    media_group = []
-                    for j, img_path in enumerate(batch):
-                        with open(img_path, 'rb') as img_file:
-                            if j == 0 and i == 0:
-                                media_group.append(
-                                    InputMediaPhoto(
-                                        media=img_file,
-                                        caption=f"TikTok Slideshow ({count} photos)",
-                                        parse_mode="Markdown"
-                                    )
-                                )
-                            else:
-                                media_group.append(InputMediaPhoto(media=img_file))
-                    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
-
+               # Kirim dalam batch (max 10 per album)
+for i in range(0, count, 10):
+    batch = images[i:i+10]
+    media_group = []
+    for j, img_path in enumerate(batch):
+        with open(img_path, 'rb') as img_file:
+            if j == 0 and i == 0:
+                media_group.append(
+                    InputMediaPhoto(
+                        media=img_file,
+                        caption=f"TikTok Slideshow ({count} photos)\nDownload via @link2vidsbot"
+                    )
+                )
+            else:
+                media_group.append(InputMediaPhoto(media=img_file))
+    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
             await status_msg.delete()
 
             # Bersihkan file
@@ -237,13 +233,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text("Sending video...")
 
         with open(file_path, 'rb') as video:
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=video,
-                caption=f"TikTok Video",
-                parse_mode="Markdown",
-                supports_streaming=True
-            )
+    await context.bot.send_video(
+        chat_id=chat_id,
+        video=video,
+        caption=f"TikTok Video\nDownload via @link2vidsbot",
+        supports_streaming=True
+    )
 
         await status_msg.delete()
         os.remove(file_path)
