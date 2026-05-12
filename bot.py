@@ -5,8 +5,14 @@ import subprocess
 import tempfile
 import shutil
 import requests
+import logging
 from telegram import Update, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Konfigurasi
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -31,7 +37,7 @@ async def resolve_tiktok_url(short_url: str) -> str:
         response = requests.get(short_url, allow_redirects=True, timeout=15)
         return response.url
     except Exception as e:
-        print(f"Resolve error: {e}")
+        logging.warning(f"Failed to resolve TikTok URL: {e}")
         return short_url
 
 async def download_tiktok_video(url: str) -> tuple:
@@ -119,98 +125,66 @@ async def download_tiktok_photo(url: str) -> tuple:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🎵 *TikTok Downloader Bot*\n\n"
-        "Kirimkan link TikTok, bot akan download:\n"
-        "✓ Video (tanpa watermark)\n"
-        "✓ Foto/Slideshow (semua gambar)\n\n"
-        "Support link:\n"
-        "• tiktok.com/@username/video/xxx\n"
-        "• tiktok.com/@username/photo/xxx\n"
-        "• vt.tiktok.com/xxxxx\n"
-        "• vm.tiktok.com/xxxxx\n\n"
-        "⚠️ Maksimal 50MB (kebijakan Telegram)",
+        "*TikTok Downloader*\n\n"
+        "Send TikTok link to download video or photos.\n\n"
+        "Supported formats:\n"
+        "• tiktok.com/@username/video/...\n"
+        "• tiktok.com/@username/photo/...\n"
+        "• vt.tiktok.com/...\n"
+        "• vm.tiktok.com/...\n\n"
+        "Max file size: 50MB (Telegram limit)",
         parse_mode="Markdown"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     chat_id = update.effective_chat.id
-    
-    # Cek apakah link TikTok
+
     if not is_tiktok_link(url):
         await update.message.reply_text(
-            "❌ *Bukan link TikTok!*\n\n"
-            "Bot ini khusus untuk download video & foto dari TikTok.\n"
-            "Silakan kirim link TikTok yang valid.",
+            "Invalid TikTok link. Please send a valid TikTok URL.",
             parse_mode="Markdown"
         )
         return
-    
-    status_msg = await update.message.reply_text(
-        "🔍 *Memproses link TikTok...*\n⏳ Mohon tunggu sebentar.",
-        parse_mode="Markdown"
-    )
-    
+
+    status_msg = await update.message.reply_text("Processing...")
+
     # Resolve URL pendek kalo perlu
     if 'vt.tiktok.com' in url or 'vm.tiktok.com' in url:
         url = await resolve_tiktok_url(url)
-        await status_msg.edit_text(
-            f"✅ *Link resolved*\n"
-            f"Sedang memproses...",
-            parse_mode="Markdown"
-        )
-    
+
     # Coba download sebagai video dulu
     file_path, title, file_size, error = await download_tiktok_video(url)
-    
+
     # Kalau error karena photo, download sebagai photo
     if error == 'PHOTO':
-        await status_msg.edit_text(
-            "🖼️ *Mendeteksi postingan FOTO...*\n"
-            "Mengunduh semua gambar...",
-            parse_mode="Markdown"
-        )
-        
+        await status_msg.edit_text("Downloading photos...")
+
         images, count, total_size, photo_error = await download_tiktok_photo(url)
-        
+
         if photo_error:
-            await status_msg.edit_text(
-                f"❌ *Gagal download foto*\n\nError: `{photo_error[:150]}`\n\n"
-                f"Pastikan link bisa diakses publik.",
-                parse_mode="Markdown"
-            )
+            await status_msg.edit_text(f"Failed: {photo_error[:100]}")
             return
-        
+
         if total_size > 50:
             await status_msg.edit_text(
-                f"⚠️ *Total ukuran terlalu besar*\n\n"
-                f"Jumlah gambar: `{count}`\n"
-                f"Total ukuran: `{total_size:.1f} MB`\n"
-                f"Batasan Telegram: `50 MB`\n\n"
-                f"Tidak bisa mengirim album karena terlalu besar.",
-                parse_mode="Markdown"
+                f"File too large: {total_size:.1f}MB (limit: 50MB)"
             )
-            # Bersihkan file
             for img in images:
                 os.remove(img)
             shutil.rmtree(os.path.dirname(images[0]), ignore_errors=True)
             return
-        
+
         # Kirim gambar
         try:
-            await status_msg.edit_text(
-                f"✅ *{count} gambar* berhasil didownload!\n"
-                f"📦 Total: `{total_size:.1f} MB`\n\n"
-                f"📤 *Mengirim album...*",
-                parse_mode="Markdown"
-            )
-            
+            await status_msg.edit_text(f"Sending {count} photo(s)...")
+
             if count == 1:
                 with open(images[0], 'rb') as img:
                     await context.bot.send_photo(
                         chat_id=chat_id,
                         photo=img,
-                        caption="🖼️ *TikTok Photo*\n📱 Download dari TikTok",
+                        caption="TikTok Photo",
                         parse_mode="Markdown"
                     )
             else:
@@ -224,114 +198,85 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 media_group.append(
                                     InputMediaPhoto(
                                         media=img_file,
-                                        caption=f"🖼️ *TikTok Slideshow*\n📸 {count} images\n\n📱 Download dari TikTok",
+                                        caption=f"TikTok Slideshow ({count} photos)",
                                         parse_mode="Markdown"
                                     )
                                 )
                             else:
                                 media_group.append(InputMediaPhoto(media=img_file))
                     await context.bot.send_media_group(chat_id=chat_id, media=media_group)
-            
+
             await status_msg.delete()
-            
+
             # Bersihkan file
             for img in images:
                 os.remove(img)
             shutil.rmtree(os.path.dirname(images[0]), ignore_errors=True)
-            
+
         except Exception as e:
-            await status_msg.edit_text(
-                f"❌ *Gagal mengirim album*\n\nError: `{str(e)[:150]}`",
-                parse_mode="Markdown"
-            )
+            await status_msg.edit_text(f"Failed to send: {str(e)[:80]}")
             for img in images:
                 if os.path.exists(img):
                     os.remove(img)
             shutil.rmtree(os.path.dirname(images[0]), ignore_errors=True)
-        
+
         return
-    
+
     # Kalau error lain
     if error:
-        await status_msg.edit_text(
-            f"❌ *Gagal mendownload*\n\n"
-            f"Error: `{error[:200]}`\n\n"
-            f"💡 *Tips:*\n"
-            f"• Pastikan link bisa diakses\n"
-            f"• Coba buka link di browser dulu\n"
-            f"• Pastikan postingan tidak private",
-            parse_mode="Markdown"
-        )
+        await status_msg.edit_text("Download failed. Ensure the link is public and accessible.")
         return
-    
+
     # Kirim video
     if file_size > 50:
-        await status_msg.edit_text(
-            f"⚠️ *Ukuran video terlalu besar*\n\n"
-            f"Ukuran: `{file_size:.1f} MB`\n"
-            f"Batasan Telegram: `50 MB`\n\n"
-            f"💡 Coba link video dengan durasi lebih pendek.",
-            parse_mode="Markdown"
-        )
+        await status_msg.edit_text(f"File too large: {file_size:.1f}MB (limit: 50MB)")
         os.remove(file_path)
         return
-    
+
     try:
-        await status_msg.edit_text(
-            f"✅ *Download berhasil!*\n"
-            f"📦 Ukuran: `{file_size:.1f} MB`\n\n"
-            f"📤 *Sedang mengirim video...*",
-            parse_mode="Markdown"
-        )
-        
+        await status_msg.edit_text("Sending video...")
+
         with open(file_path, 'rb') as video:
             await context.bot.send_video(
                 chat_id=chat_id,
                 video=video,
-                caption=f"🎬 *{title}*\n\n📱 TikTok (No Watermark)",
+                caption=f"TikTok Video",
                 parse_mode="Markdown",
                 supports_streaming=True
             )
-        
+
         await status_msg.delete()
         os.remove(file_path)
-        
+
     except Exception as e:
-        await status_msg.edit_text(
-            f"❌ *Gagal mengirim video*\n\nError: `{str(e)[:150]}`",
-            parse_mode="Markdown"
-        )
+        await status_msg.edit_text(f"Failed to send: {str(e)[:80]}")
         if os.path.exists(file_path):
             os.remove(file_path)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📖 *Cara Pakai*\n\n"
-        "1. Buka TikTok\n"
-        "2. Tekan Share → Copy Link\n"
-        "3. Paste di chat ini\n"
-        "4. Tunggu video/foto terkirim\n\n"
-        "✅ Support video & foto\n"
-        "✅ Tanpa watermark\n"
-        "✅ Link pendek (vt.tiktok.com) juga bisa\n\n"
-        "Kirim link sekarang! 🚀",
+        "*How to Use*\n\n"
+        "1. Open TikTok\n"
+        "2. Copy video/photo link\n"
+        "3. Send link here\n"
+        "4. Wait for download\n\n"
+        "Supports: Videos, Photos & Slideshows\n"
+        "Formats: tiktok.com & short links (vt.tiktok.com, vm.tiktok.com)",
         parse_mode="Markdown"
     )
 
 def main():
     if not BOT_TOKEN:
-        print("❌ ERROR: BOT_TOKEN tidak ditemukan!")
-        print("   Set environment variable BOT_TOKEN di Railway.")
+        logging.error("BOT_TOKEN environment variable not found")
         return
-    
-    print("🚀 TikTok Downloader Bot berjalan...")
-    print("   Support: Video & Photo/Slideshow")
-    
+
+    logging.info("TikTok Downloader Bot started")
+
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
+
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
