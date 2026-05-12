@@ -186,23 +186,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parse_mode="Markdown"
                     )
             else:
-               # Kirim dalam batch (max 10 per album)
-for i in range(0, count, 10):
-    batch = images[i:i+10]
-    media_group = []
-    for j, img_path in enumerate(batch):
-        with open(img_path, 'rb') as img_file:
-            if j == 0 and i == 0:
-                media_group.append(
-                    InputMediaPhoto(
-                        media=img_file,
-                        caption=f"TikTok Slideshow ({count} photos)\nDownload via @link2vidsbot"
-                    )
-                )
-            else:
-                media_group.append(InputMediaPhoto(media=img_file))
-    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
-            await status_msg.delete()
+                # Kirim dalam batch (max 10 per album)
+                for i in range(0, count, 10):
+                    batch = images[i:i+10]
+                    media_group = []
+                    for j, img_path in enumerate(batch):
+                        with open(img_path, 'rb') as img_file:
+                            if j == 0 and i == 0:
+                                media_group.append(
+                                    InputMediaPhoto(
+                                        media=img_file,
+                                        caption=f"TikTok Slideshow ({count} photos)\nDownload via @link2vidsbot"
+                                    )
+                                )
+                            else:
+                                media_group.append(InputMediaPhoto(media=img_file))
+                    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                await status_msg.delete()
 
             # Bersihkan file
             for img in images:
