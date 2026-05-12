@@ -233,12 +233,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text("Sending video...")
 
         with open(file_path, 'rb') as video:
-    await context.bot.send_video(
-        chat_id=chat_id,
-        video=video,
-        caption=f"TikTok Video\nDownload via @link2vidsbot",
-        supports_streaming=True
-    )
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=video,
+                caption=f"TikTok Video\nDownload via @link2vidsbot",
+                supports_streaming=True
+            )
 
         await status_msg.delete()
         os.remove(file_path)
